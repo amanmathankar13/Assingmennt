@@ -11,10 +11,12 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+
 import com.factory.events.dto.EventDTO;
 import com.factory.events.entity.Event;
 import com.factory.events.repository.EventRepository;
@@ -200,11 +202,15 @@ public class MachineEventsServiceApplicationTests {
 
     /** 8. Thread-safety test: concurrent ingestion doesn’t corrupt counts */
     @Test
-    void testConcurrentIngestion() throws InterruptedException, ExecutionException {
-        ExecutorService executor = Executors.newFixedThreadPool(10);
+    void testConcurrentIngestion_1000Events() throws InterruptedException, ExecutionException {
+        int totalEvents = 1000;
+        ExecutorService executor = Executors.newFixedThreadPool(20);
         List<Callable<Void>> tasks = new ArrayList<>();
 
-        for (int i = 0; i < 50; i++) {
+        // Fixed time to avoid boundary issues
+        Instant eventTime = Instant.now().minusSeconds(30);
+
+        for (int i = 0; i < totalEvents; i++) {
             int finalI = i;
             tasks.add(() -> {
                 EventDTO e = new EventDTO();
@@ -214,7 +220,7 @@ public class MachineEventsServiceApplicationTests {
                 e.setFactoryId("F-001");
                 e.setDurationMs(1000L);
                 e.setDefectCount(1);
-                e.setEventTime(Instant.now());
+                e.setEventTime(eventTime);
 
                 eventService.ingestBatch(List.of(e));
                 return null;
@@ -223,10 +229,15 @@ public class MachineEventsServiceApplicationTests {
 
         executor.invokeAll(tasks);
         executor.shutdown();
-        executor.awaitTermination(5, TimeUnit.SECONDS);
+        executor.awaitTermination(10, TimeUnit.SECONDS);
 
-        var stats = statsService.getStats("M-001", Instant.now().minusSeconds(60), Instant.now().plusSeconds(60));
-        assertEquals(50, stats.getEventCount());
+        var stats = statsService.getStats(
+                "M-001",
+                eventTime.minusSeconds(10),
+                eventTime.plusSeconds(10)
+        );
+
+        assertEquals(1000, stats.getEventCount());
     }
 }
 
